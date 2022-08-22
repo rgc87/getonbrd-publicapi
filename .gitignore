@@ -1,0 +1,6 @@
+# Excluded directories.
+.venv/
+__pycache__/
+
+# Excluded files.
+note.ipynb
