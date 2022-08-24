@@ -1,7 +1,10 @@
-import requests
+import argparse
+
 from datetime import datetime
-from time import sleep
 import pickle
+from time import sleep
+
+import requests
 from bson.objectid import ObjectId
 from pymongo import MongoClient
 
@@ -101,11 +104,22 @@ def _request(url, headers={}, payload={}):
     except:
         return response.status_code
 
-def _unpack_and_reduce(rawdata:list):
-    data_unpacked = rawdata.copy()
-    for data in data_unpacked:
+def _parse_jobs(jobs:list):
+    jobs_raw = jobs.copy()
+    
+    with open('data/dict_indxs_tags.pckl', 'rb') as bindata:
+        idx_tags = pickle.load(bindata)
+    
+    with open('data/dict_seniority_types.pckl', 'rb') as bindata:
+        seniority_types = pickle.load(bindata)
+    
+    with open('data/dict_modality_types.pckl', 'rb') as bindata:
+        modality_types = pickle.load(bindata)
+    
+    # Unpack and reduce data.
+    for data in jobs_raw:
         # DELETE KEY:TYPE
-        data.pop('type') #***3
+        data.pop('type')
             
         # UNPACK DICT:LINKS.
         data.update( data['links'] )
@@ -117,19 +131,6 @@ def _unpack_and_reduce(rawdata:list):
         
         # DELETE DICT:ATTRIBUTES
         data.pop('attributes')
-    return data_unpacked
-
-def _parse_jobs(jobs:list):
-    jobs_raw = _unpack_and_reduce(jobs).copy() #***2
-    
-    with open('data/dict_indxs_tags.pckl', 'rb') as bindata:
-        idx_tags = pickle.load(bindata)
-    
-    with open('data/dict_seniority_types.pckl', 'rb') as bindata:
-        seniority_types = pickle.load(bindata)
-    
-    with open('data/dict_modality_types.pckl', 'rb') as bindata:
-        modality_types = pickle.load(bindata)
     
     chars_html = [  
         '<p>','</p>','<li>','</li>','<strong>','</strong>',
@@ -222,17 +223,44 @@ def database_from_pickle(filename:str):
         return parsed_jobs
 
 
-if __name__== '__main__':
+def parse_inputs(pargs=None):
+    parser = argparse.ArgumentParser(description='...')
+    
+    parser.add_argument('--create',
+        action='store_true',
+        help='Create database from scratch.'
+    )
+    parser.add_argument('--update',
+        action='store_true',
+        help='Request for new data and compare.'
+    )
+    parser.add_argument('--quehace',
+        action='store_true',
+        help='Holis.'
+    )
+    return parser.parse_args(pargs)
+
+def run_script(args=None):
+    arg = parse_inputs(args)
+    
     categories = [
-        # 'machine-learning-ai',
-        # 'data-science-analytics',
-        # 'mobile-developer',
-        # 'sysadmin-devops-qa',
+        'machine-learning-ai',
+        'data-science-analytics',
+        'mobile-developer',
+        'sysadmin-devops-qa',
         
         'programming', 
     ]
-    
-    create = database_getonbrd_fromscratch(categories)
-    
-    # update = update_jobs_collection(category='mobile-developer')
-    # print(update)
+    if arg.ejemplo:
+        print('Hello world')
+        return
+    elif arg.create:
+        create = database_getonbrd_fromscratch(categories)
+        print(create)    
+    elif arg.update:
+        update = update_jobs_collection(category='mobile-developer')
+        print(update)
+
+
+if __name__== '__main__':
+    run_script()
