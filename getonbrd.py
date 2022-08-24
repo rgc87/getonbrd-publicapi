@@ -23,64 +23,67 @@ my_db = mongo_client['getonbrd_job_offers']
 
 
 def _insert_documents_avoiding_duplicates(data, category):
-    try:
-        parsed_data = _parse_jobs(data)
-    except Exception as e:
-        print(e)
-        print(f'From {__name__}. Array of jobs comming from _update_jobs_collection() should be wrong.')
+    parsed_data = _parse_jobs(data)
     category = category.replace('-','_')
     coll_name = f'jobs_{category}'
     cursor_mongo = my_db[coll_name]
-    
-    duplicated = 0
     for j in parsed_data:
         try:
             res = cursor_mongo.insert_one(j)
             if res:
-                print('Updating jobs...',j.get('published_at'), j.get('company'))
+                print('new data added: ',j.get('published_at'), j.get('seniority'),' // ', j.get('title'))
         except:
-            duplicated+=1
-            print(f'ERROR by Duplication with ',j.get('published_at'), j.get('company'))
-    return f'Total duplicated files:{duplicated}'
+            print('FOUND: duplicate files', j.get('published_at'), j.get('seniority'))
 
-def update_jobs_collection(category:str):
-    # First request_get.
-    per_page = 10
-    page = 1
-    endpoint = f'categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
-    url = baseurl+endpoint
-    
-    jobs = _request(url)
-    total_pages = jobs['meta'].get('total_pages')
-    all_jobs = []
-    print(f'Ready, page {page} of {total_pages}')
-    
-    newest_stored_data = _read_newest_db(category)
-    new_data = datetime.fromtimestamp(jobs['data'][0]['attributes'].get('published_at'))
-    if not (new_data > newest_stored_data):
-        print(f'Database is up to date at: {newest_stored_data}')
-        return 
-    
-    if total_pages > 1:
-        all_jobs+=jobs['data']
-        for _ in range(total_pages-1):
-            page+=1
-            url = f'{baseurl}categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
-            jobs = _request(url)
-            all_jobs+=jobs['data']
-            print(f'Ready, page {page} of {total_pages}')
-            
-            new_data = datetime.fromtimestamp(all_jobs[0]['attributes'].get('published_at'))
-            if not (new_data > newest_stored_data):
-                print('There is no more new publications.')
-                return _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
-            sleep(3)
-        # Just in case of read every page.
+def update_jobs_collection(categories:list):
+    for category in categories:
+        # First request_get.
+        per_page = 10
+        page = 1
+        endpoint = f'categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
+        url = baseurl+endpoint
         
-        return _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
-    else:
-        all_jobs += jobs['data']
-        return _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
+        jobs = _request(url)
+        total_pages = jobs['meta'].get('total_pages')
+        all_jobs = []
+        print(f'{category} // page {page} of {total_pages}')
+        
+        newest_stored_data = _read_newest_db(category)
+        new_data = datetime.fromtimestamp(jobs['data'][0]['attributes'].get('published_at'))
+        if not (new_data > newest_stored_data):
+            print(f'Database jobs_{category} is up to date at: {newest_stored_data}\n')
+            continue 
+        
+        if total_pages > 1:
+            all_jobs+=jobs['data']
+            flag=False
+            for _ in range(total_pages-1):
+                page+=1
+                url = f'{baseurl}categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
+                jobs = _request(url)
+                all_jobs+=jobs['data']
+                print(f'{category} // page {page} of {total_pages}')
+                
+                for j in all_jobs:
+                    publication_date = datetime.fromtimestamp(j['attributes'].get('published_at'))
+                    if (publication_date > newest_stored_data):
+                        print('next page...')
+                        sleep(2)
+                        break
+                    else:
+                        print('FOUND: Oldest publications. New data will be stored now.')
+                        _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
+                        flag=True
+                        break
+                if flag:
+                    break
+                else:
+                    continue
+        else:
+            # Total pages==1
+            all_jobs += jobs['data']
+            _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
+            continue
 
 
 def _read_newest_db(category:str):
@@ -234,10 +237,6 @@ def parse_inputs(pargs=None):
         action='store_true',
         help='Request for new data and compare.'
     )
-    parser.add_argument('--quehace',
-        action='store_true',
-        help='Holis.'
-    )
     return parser.parse_args(pargs)
 
 def run_script(args=None):
@@ -251,15 +250,25 @@ def run_script(args=None):
         
         'programming', 
     ]
-    if arg.ejemplo:
-        print('Hello world')
-        return
-    elif arg.create:
-        create = database_getonbrd_fromscratch(categories)
-        print(create)    
+    if arg.create:
+        res = input('Are you sure, completely sure that want to create a whole collection  from scratch?\nanswer: ')
+        affirmative = ['SI','YES']
+        negative = ['NO','NOT']
+        
+        if res in affirmative:
+            create = database_getonbrd_fromscratch(categories)
+        elif res in negative:
+            print('Ok no, bye.')
+            exit()
+        else:
+            print('WRONG ANSWER')
+            exit()
+        
     elif arg.update:
-        update = update_jobs_collection(category='mobile-developer')
+        update = update_jobs_collection(categories)
         print(update)
+    else:
+        print('No parameters entered yet.')
 
 
 if __name__== '__main__':
