@@ -3,4 +3,6 @@
 __pycache__/
 
 # Excluded files.
+*.pckl
 note.ipynb
+*.code-workspace

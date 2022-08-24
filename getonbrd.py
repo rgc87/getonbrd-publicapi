@@ -5,37 +5,93 @@ import pickle
 from bson.objectid import ObjectId
 from pymongo import MongoClient
 
+# INDEX INFO
+''' 
+cursor_mdb = coll.list_indexes()
+cursor_mdb = coll.index_information() #BETTER 
+'''
 
 # Public api.
 baseurl = 'https://www.getonbrd.com/api/v0/'
 
 # Database client.
-client = MongoClient('mongodb://localhost:27017/')
+mongo_client = MongoClient('mongodb://localhost:27017/')
+my_db = mongo_client['getonbrd_job_offers']
 
 
-def insert_documents(data:list, collection:str, db_name:str):
-    """
-        Insert data into mongoDB
-        """
-    my_db = client[db_name]
-    colls = my_db[collection]
-    result = colls.insert_many(jobs)
-    return result.inserted_ids
-
-def query_documents(collection:str, db_name:str, pipeline:list):
-    """
-        QUERY data from mongoDB
-        """
-    my_db = client[db_name]
-    colls = my_db[collection]
+def _insert_documents_avoiding_duplicates(data, category):
+    try:
+        parsed_data = _parse_jobs(data)
+    except Exception as e:
+        print(e)
+        print(f'From {__name__}. Array of jobs comming from _update_jobs_collection() should be wrong.')
+    category = category.replace('-','_')
+    coll_name = f'jobs_{category}'
+    cursor_mongo = my_db[coll_name]
     
-    pipeline = []
-    cursor_mdb = colls.aggregate(pipeline)
+    duplicated = 0
+    for j in parsed_data:
+        try:
+            res = cursor_mongo.insert_one(j)
+            if res:
+                print('Updating jobs...',j.get('published_at'), j.get('company'))
+        except:
+            duplicated+=1
+            print(f'ERROR by Duplication with ',j.get('published_at'), j.get('company'))
+    return f'Total duplicated files:{duplicated}'
+
+def update_jobs_collection(category:str):
+    # First request_get.
+    per_page = 10
+    page = 1
+    endpoint = f'categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
+    url = baseurl+endpoint
     
-    trabajos = []
+    jobs = _request(url)
+    total_pages = jobs['meta'].get('total_pages')
+    all_jobs = []
+    print(f'Ready, page {page} of {total_pages}')
+    
+    newest_stored_data = _read_newest_db(category)
+    new_data = datetime.fromtimestamp(jobs['data'][0]['attributes'].get('published_at'))
+    if not (new_data > newest_stored_data):
+        print(f'Database is up to date at: {newest_stored_data}')
+        return 
+    
+    if total_pages > 1:
+        all_jobs+=jobs['data']
+        for _ in range(total_pages-1):
+            page+=1
+            url = f'{baseurl}categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
+            jobs = _request(url)
+            all_jobs+=jobs['data']
+            print(f'Ready, page {page} of {total_pages}')
+            
+            new_data = datetime.fromtimestamp(all_jobs[0]['attributes'].get('published_at'))
+            if not (new_data > newest_stored_data):
+                print('There is no more new publications.')
+                return _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
+            sleep(3)
+        # Just in case of read every page.
+        
+        return _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
+    else:
+        all_jobs += jobs['data']
+        return _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
+
+
+def _read_newest_db(category:str):
+    category = category.replace('-','_')
+    colls = my_db[f'jobs_{category}']
+    cursor_mdb = colls.aggregate([
+        {'$sort':{'published_at':-1}},
+        {'$limit':1},
+        {'$project':{'title':1,'company':1,'published_at':1}},
+    ])
+    jobs_sample = []
     for doc in cursor_mdb:
-        trabajos.append(doc)
-    return trabajos
+        jobs_sample.append(doc)
+    return jobs_sample[0]['published_at'] #datetime
 
 def _request(url, headers={}, payload={}):
     try:
@@ -45,47 +101,26 @@ def _request(url, headers={}, payload={}):
     except:
         return response.status_code
 
-def read_every_category_page(category:str, per_page:int):
-    # First request_get.
-    page = 1
-    expand = '["company"]'
-    endpoint = f'categories/{category}/jobs?per_page={per_page}&page={page}&expand={expand}'
-    url = baseurl+endpoint
-    
-    jobs = _request(url)
-    
-    total_pages = jobs['meta']['total_pages']
-    all_jobs = []
-    
-    for _ in range(total_pages):
-        all_jobs+=jobs['data']
-        print(f'Page {page} : READY... of {total_pages}')
-        
-        # Update.
-        page+=1
-        sleep(2)
-        url = f'{baseurl}categories/{category}/jobs?per_page={per_page}&page={page}&expand={expand}'
-        # Request again
-        jobs = _request(url)
-    return all_jobs
-
-def _unpack_and_reduce(rawdata):
+def _unpack_and_reduce(rawdata:list):
     data_unpacked = rawdata.copy()
-    for idx,data in enumerate(data_unpacked):
-        # Delete key:type
-        data_unpacked[idx].pop('type')
-        # Unpack dict:links.
-        data_unpacked[idx].update( data_unpacked[idx]['links'] )
-        data_unpacked[idx].pop('links')
-        # Unpack dict:attributes.
-        for k,v in data_unpacked[idx]['attributes'].items():
-            data_unpacked[idx].update({k:v})
-        # Delete dicy:attributes
-        data_unpacked[idx].pop('attributes')
+    for data in data_unpacked:
+        # DELETE KEY:TYPE
+        data.pop('type') #***3
+            
+        # UNPACK DICT:LINKS.
+        data.update( data['links'] )
+        data.pop('links')
+        
+        # UNPACK DICT:ATTRIBUTES.
+        for k,v in data['attributes'].items():
+            data.update({k:v})
+        
+        # DELETE DICT:ATTRIBUTES
+        data.pop('attributes')
     return data_unpacked
 
-def parse_jobs(jobs):
-    jobs_raw = _unpack_and_reduce(jobs).copy()
+def _parse_jobs(jobs:list):
+    jobs_raw = _unpack_and_reduce(jobs).copy() #***2
     
     with open('data/dict_indxs_tags.pckl', 'rb') as bindata:
         idx_tags = pickle.load(bindata)
@@ -96,71 +131,108 @@ def parse_jobs(jobs):
     with open('data/dict_modality_types.pckl', 'rb') as bindata:
         modality_types = pickle.load(bindata)
     
-    chars_html = ['<p>','</p>','<li>','</li>','<strong>','</strong>','<ul>','</ul>',]
-    attributes = ['description','projects','functions','benefits','desirable',]
-    
-    for idx,j in enumerate(jobs_raw):
+    chars_html = [  
+        '<p>','</p>','<li>','</li>','<strong>','</strong>',
+        '<ul>','</ul>','<div>','</div>',
+    ]
+    attributes = [
+        'description','projects','functions',
+        'benefits','desirable',
+    ]
+    for j in jobs_raw:
         # Delete html characters.
-        for char in chars_html:
-            for attr in attributes:
-                jobs_raw[idx][attr] = j[attr].replace(char, '')
+        for attr in attributes:
+            for char in chars_html:
+                j[attr] = j[attr].replace(char, '')
         
         # Parse dates.
-        jobs_raw[idx]['published_at'] = datetime.fromtimestamp(j['published_at'])
+        j['published_at'] = datetime.fromtimestamp(j['published_at'])
         
         # Parse company.
-        jobs_raw[idx]['company'] = j['company']['data'].get('id')
+        j['company'] = j['company']['data']['attributes'].get('name')
         
         # Parse tags id.
         tags_data = j['tags']['data'].copy()
-        jobs_raw[idx]['tags'] = [ idx_tags.get(x.get('id')) for x in tags_data ]
+        j['tags'] = [ idx_tags.get(x.get('id')) for x in tags_data ]
         
         # Parse seniority id.
-        jobs_raw[idx]['seniority'] = seniority_types.get( j['seniority']['data'].get('id') )
+        j['seniority'] = seniority_types.get( j['seniority']['data'].get('id') )
         
         # Parse modality id.
-        jobs_raw[idx]['modality'] = modality_types.get( j['modality']['data'].get('id') )
-        
-        
-        #########################################################################
-        #########################################################################
+        j['modality'] = modality_types.get( j['modality']['data'].get('id') )
     return jobs_raw
 
-def _iterator(iterable):
-    for i in iterable:
-        yield i
+def _read_every_category_page(category:str):
+    # First request_get.
+    per_page = 10
+    page = 1
+    endpoint = f'categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
+    url = baseurl+endpoint
+    
+    jobs = _request(url)
+    total_pages = jobs['meta']['total_pages']
+    all_jobs = []
+    
+    if total_pages > 1:
+        all_jobs += jobs['data']
+        print(f'{category} Page {page} of {total_pages}')
+        for _ in range(total_pages-1):
+            page+=1
+            url = f'{baseurl}categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
+            jobs = _request(url)
+            all_jobs += jobs['data']
+            print(f'{category} Page {page} of {total_pages}')
+            sleep(3)
+        return all_jobs
+    else:
+        print(f'{category} Page {page} of {total_pages}')
+        all_jobs += jobs['data']
+        return  all_jobs
+
+def database_getonbrd_fromscratch(categories):
+    for cat in categories:
+        # RETRIEVE DATA.
+        get_all_jobs = _read_every_category_page(category=cat)
+        jobs_parsed = _parse_jobs(get_all_jobs) #***1
+        
+        #PERSIST WITH PICKLE.
+        timestamp = datetime.now()
+        filename = f"data/list_{cat}_{timestamp}.pckl"
+        with open(filename, 'wb') as bindata:
+            pickle.dump(jobs_parsed, bindata)
+        
+        # PERSIST ON MONGO DB.
+        c = cat.replace('-','_')
+        collection=f'jobs_{c}'
+        colls = my_db[collection]
+        try:
+            result = colls.insert_many(jobs_parsed)
+            colls.create_index(
+                "published_at",
+                unique=True,
+            )
+            print(f"Persisted, created: ",cat)
+        except Exception as e:
+            print("Algo falló en: ",cat)
+    return 'FINISHED, from scratch.'
+
+def database_from_pickle(filename:str):
+    with open(filename) as bindata:
+        parsed_jobs:list = pickle.load()
+        return parsed_jobs
 
 
 if __name__== '__main__':
-    # tags_gob = dict(zip([n for n in range(len(all_tags))], all_tags ))
-    # with open('dict_indxs_tags.pckl', 'wb') as binario:
-        # pickle.dump(tags_gob, binario)
-    
-    from getonbrd import *
-    
-    # ALL JOBS, PROGRAMMING.
-    get_all_jobs = read_every_category_page(category='programming', per_page=10)
-    
-    # Persist.
-    with open('data/jobs_programming_440.pckl', 'wb') as bindata:
-        pickle.dump(get_all_jobs, bindata)
+    categories = [
+        # 'machine-learning-ai',
+        # 'data-science-analytics',
+        # 'mobile-developer',
+        # 'sysadmin-devops-qa',
         
-    # Open bin.
-    with open('data/jobs_programming_440.pckl', 'rb') as bindata:
-        programming_jobs = pickle.load(bindata)
+        'programming', 
+    ]
     
-    programming_jobs[0].keys()
-    programming_jobs
+    create = database_getonbrd_fromscratch(categories)
     
-    
-    insert_documents(data=get_jobs, collection='jobs_programming', db_name='getonbrd_api')
-    
-    itefunc = _iterator(resp)
-    next(itefunc)
-    
-    # Filter by Tags.
-    for j in jobs_parsed:
-        # if 'data-engineer' in j['attributes']['tags']:
-        # if 'data-science' in j['attributes']['tags']:
-        if 'mongo' in j['attributes']['tags']:
-            print(f" {j['attributes']['published_at']} {j['attributes']['title']} {j['attributes']['tags']}")
+    # update = update_jobs_collection(category='mobile-developer')
+    # print(update)
