@@ -26,64 +26,45 @@ def _insert_documents_avoiding_duplicates(data, category):
     category = category.replace('-','_')
     coll_name = f'jobs_{category}'
     cursor_mongo = my_db[coll_name]
+    print("LET'S STORE SOME NEW DATA")
     for j in parsed_data:
         try:
             res = cursor_mongo.insert_one(j)
             if res:
                 print('new data added: ',j.get('published_at'), j.get('seniority'),' // ', j.get('title'))
         except:
-            print('FOUND: duplicate files', j.get('published_at'), j.get('seniority'))
+            # print('FOUND: duplicate files', j.get('published_at'), j.get('seniority')) #Too much text.
+            continue
+    return f"DATA STORED SUCCESSFULLY on: {category}"
 
 def update_jobs_collection(categories:list):
     for category in categories:
-        # First request_get.
-        per_page = 10
-        page = 1
+        per_page, page = 50, 1
         endpoint = f'categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
         url = baseurl+endpoint
         
         jobs = _request(url)
         total_pages = jobs['meta'].get('total_pages')
-        all_jobs = []
         print(f'{category} // page {page} of {total_pages}')
         
-        newest_stored_data = _read_newest_db(category)
-        new_data = datetime.fromtimestamp(jobs['data'][0]['attributes'].get('published_at'))
-        if not (new_data > newest_stored_data):
-            print(f'Database jobs_{category} is up to date at: {newest_stored_data}\n')
-            continue 
+        all_jobs = []
+        all_jobs+=jobs['data']
         
-        if total_pages > 1:
-            all_jobs+=jobs['data']
-            flag=False
-            for _ in range(total_pages-1):
-                page+=1
-                url = f'{baseurl}categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
-                jobs = _request(url)
-                all_jobs+=jobs['data']
-                print(f'{category} // page {page} of {total_pages}')
-                
-                for j in all_jobs:
-                    publication_date = datetime.fromtimestamp(j['attributes'].get('published_at'))
-                    if (publication_date > newest_stored_data):
-                        print('next page...')
-                        sleep(2)
-                        break
-                    else:
-                        print('FOUND: Oldest publications. New data will be stored now.')
-                        _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
-                        flag=True
-                        break
-                if flag:
-                    break
-                else:
-                    continue
-        else:
-            # Total pages==1
-            all_jobs += jobs['data']
+        newest_stored_data = _read_newest_db(category)
+        
+        dates = []
+        for job in all_jobs:
+            new_job_date = datetime.fromtimestamp(job['attributes'].get('published_at'))
+            dates.append(new_job_date)
+        
+        new_data = ( max(dates) > newest_stored_data )
+        if not new_data:
+            print(f'Database jobs_{category} is up to date at: {newest_stored_data}\n')
+            continue #iterate next category
+        elif new_data:
             _insert_documents_avoiding_duplicates(data=all_jobs, category=category)
-            continue
-
+            continue #iterate next category
+    return "ALL CATEGORIES HAS BEEN REVISITED"
 
 def _read_newest_db(category:str):
     category = category.replace('-','_')
@@ -179,13 +160,14 @@ def _read_every_category_page(category:str):
     if total_pages > 1:
         all_jobs += jobs['data']
         print(f'{category} Page {page} of {total_pages}')
+        
         for _ in range(total_pages-1):
             page+=1
             url = f'{baseurl}categories/{category}/jobs?per_page={per_page}&page={page}&expand=["company"]'
             jobs = _request(url)
             all_jobs += jobs['data']
             print(f'{category} Page {page} of {total_pages}')
-            sleep(3)
+            sleep(2)
         return all_jobs
     else:
         print(f'{category} Page {page} of {total_pages}')
