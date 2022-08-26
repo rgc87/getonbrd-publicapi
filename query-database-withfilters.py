@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime, timedelta
+from os import system
 
 from bson.objectid import ObjectId
 from pymongo import MongoClient
@@ -23,7 +24,7 @@ def query_mongo(batch_n=100, days_lookback=30):
                 'seniority':1,
                 'public_url':1,
                 'title':1,
-                # 'company':1,
+                'company':1,
                 'description':1,
                 'projects':1,
                 'functions':1,
@@ -133,15 +134,16 @@ def run_script(args=None):
         ]
         update_jobs_collection(categories)
     
+    system('clear')
+    
     query = query_mongo(batch_n=100, days_lookback=30)
     jobs = filter_text_body(data=query, seniority=arg.seniority)
     
     for idx, job in enumerate(jobs[:arg.output]):
-        print(f"\n{idx} ({job.get('seniority')}) {job.get('published_at')} {job.get('title')}")
-        print(f"{job.get('kw_ok')}")
-        print(f"{job.get('kw_red')}")
+        print(f"\n\n({idx})({job.get('seniority')}) {job.get('published_at')} // {job.get('title')} // {job.get('company')} // {job.get('public_url')}")
+        print(f"MATCH: {job.get('kw_ok')}\tWEAK: {job.get('kw_red')}")
     
-    print("Total results: ",len(jobs))
+    print(f"\n_Total results: {len(jobs)}\n")
 
 
 if __name__== '__main__':
