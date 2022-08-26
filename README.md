@@ -7,6 +7,10 @@ pip install -r requirements.txt.
 
 ---
 
-*Run `python3 getonbrd.py --create` in a terminal for create a database with all available data.
+Run `python3 getonbrd.py --create` in a terminal for create a database with all available data.
 
-*Run `python3 getonbrd.py --update` in a terminal for update database with new job offers.
+Run `python3 getonbrd.py --update` in a terminal for update database with new job offers.
+
+---
+
+```
