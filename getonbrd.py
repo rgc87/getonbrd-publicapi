@@ -117,7 +117,7 @@ def _parse_jobs(jobs:list):
     
     chars_html = [  
         '<p>','</p>','<li>','</li>','<strong>','</strong>',
-        '<ul>','</ul>','<div>','</div>',
+        '<ul>','</ul>','<div>','</div>','<br>',
     ]
     attributes = [
         'description','projects','functions',
