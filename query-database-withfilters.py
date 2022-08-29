@@ -54,6 +54,7 @@ def filter_text_body(data:list, seniority=False):
     data_filtered = []
     key_words_ok = [
         'python',
+        'streamlit','postman'
         'etl','git',
     ]
     key_words_bad = [
@@ -116,7 +117,19 @@ def parse_inputs(pargs=None):
         action='store',
         type=int,
         default=10,
-        help='Sample size, optional.'
+        help='How many results for display. n=10'
+    )
+    parser.add_argument('--batch_query',
+        action='store',
+        type=int,
+        default=100,
+        help='n=100, default.'
+    )
+    parser.add_argument('--lookback_date',
+        action='store',
+        type=int,
+        default=30,
+        help='Thirty days, by default.'
     )
     return parser.parse_args(pargs)
 
@@ -136,7 +149,7 @@ def run_script(args=None):
     
     system('clear')
     
-    query = query_mongo(batch_n=100, days_lookback=30)
+    query = query_mongo(batch_n=arg.batch_query, days_lookback=arg.lookback_date)
     jobs = filter_text_body(data=query, seniority=arg.seniority)
     
     for idx, job in enumerate(jobs[:arg.output]):
