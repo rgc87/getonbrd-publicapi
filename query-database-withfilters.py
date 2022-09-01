@@ -77,22 +77,7 @@ def filter_text_body(data:list, seniority=False):
         words_array = longstring.split()
         unique_words_array = list(set(words_array))
         
-        # found_kws = []
-        # for kw in key_words_ok:
-        #     if kw in unique_words_array:
-        #         found_kws.append(kw)
         found_kws = [kw for kw in key_words_ok if kw in unique_words_array]
-        
-        # if found_kws:
-        #     flag_kws=True
-        # else:
-        #     flag_kws=False
-        flag_kws = True if found_kws else False
-        
-        # phrase = []
-        # for word in key_words_bad:
-        #     if word in unique_words_array:
-        #         phrase.append(word)
         phrase = [word for word in key_words_bad if word in unique_words_array]
         
         # FILTER
@@ -100,6 +85,7 @@ def filter_text_body(data:list, seniority=False):
             if not (job.get('seniority') == ('junior' or 'sin_experiencia')):
                 continue
         
+        flag_kws = True if found_kws else False
         if (flag_kws):
             job.update(dict(kw_ok= found_kws.copy()))
             job.update(dict(kw_red= phrase.copy()))
